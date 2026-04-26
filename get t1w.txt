@@ -1,0 +1,29 @@
+cd C:\Users\Aditi\ds005613
+
+& c:/Users/Aditi/ds005613/.venv/Scripts/python.exe -c "
+from pathlib import Path
+import subprocess, shutil, json
+
+root = Path(r'C:\Users\Aditi\ds005613')
+subs = sorted([p.name for p in root.glob('sub-pp*') if p.is_dir()])
+
+reserve_gb = 5.0   # safety floor
+ok, err, skipped = [], [], []
+
+for i, s in enumerate(subs, 1):
+    free_gb = shutil.disk_usage('C:\\').free / 1e9
+    if free_gb < reserve_gb:
+        skipped.extend(subs[i-1:])
+        print(f'STOP_LOW_SPACE free_gb={free_gb:.2f}')
+        break
+
+    nii = f'{s}/ses-01/anat/{s}_ses-01_rec-defaced_T1w.nii.gz'
+    jsn = f'{s}/ses-01/anat/{s}_ses-01_rec-defaced_T1w.json'
+    print(f'[{i}/{len(subs)}] GET {s} free_gb={free_gb:.2f}')
+    r = subprocess.run(['datalad', 'get', nii, jsn])
+    (ok if r.returncode == 0 else err).append(s)
+
+report = {'ok': ok, 'err': err, 'skipped_due_to_space': skipped}
+(root / 't1w_fetch_report.json').write_text(json.dumps(report, indent=2))
+print(f'DONE ok={len(ok)} err={len(err)} skipped={len(skipped)}')
+"
