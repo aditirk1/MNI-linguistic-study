@@ -1,0 +1,12 @@
+/NumWaves	5
+/NumContrasts	4
+/ContrastName1	nlang_positive
+/ContrastName2	nlang_negative
+/ContrastName3	entropy_positive
+/ContrastName4	entropy_negative
+
+/Matrix
+1 0 0 0 0
+-1 0 0 0 0
+0 1 0 0 0
+0 -1 0 0 0

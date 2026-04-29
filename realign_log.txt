@@ -1,0 +1,12 @@
+SPM realign (estimate only) for 18 subjects
+This writes rp_*.txt without modifying the BOLD images.
+
+[1/18] sub-pp048 starting... 
+
+------------------------------------------------------------------------
+28-Apr-2026 08:01:43 - Running job #1
+------------------------------------------------------------------------
+28-Apr-2026 08:01:43 - Running 'Realign: Estimate'
+
+SPM25: spm_realign                                 08:01:43 - 28/04/2026
+========================================================================
