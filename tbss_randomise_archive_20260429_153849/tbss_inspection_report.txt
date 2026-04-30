@@ -1,0 +1,43 @@
+TBSS randomise inspection report
+Generated: 2026-04-29T15:38:49-04:00
+Working directory: /mnt/c/Users/Aditi/ds005613/derivatives/dwi_processed/tbss/stats
+corrp threshold (FWE p<0.05 convention): 0.95
+
+=== fslstats: skeleton mask voxels (nonzero in mask) ===
+voxels_in_mask: 101510   non-zero vol count check
+
+--- Contrast 1 ---
+  Raw t-stat (masked by skeleton):
+    min max: -1.591214 2.292300
+  TFCE 1-p (corrp), masked:
+    min max: 0.000000 0.593600
+  Voxels with corrp > 0.95 (within mask):
+    count: 0   (corrp > 0.95)
+
+--- Contrast 2 ---
+  Raw t-stat (masked by skeleton):
+    min max: -2.292300 1.591214
+  TFCE 1-p (corrp), masked:
+    min max: 0.000000 0.366000
+  Voxels with corrp > 0.95 (within mask):
+    count: 0   (corrp > 0.95)
+
+--- Contrast 3 ---
+  Raw t-stat (masked by skeleton):
+    min max: -1.291500 2.115953
+  TFCE 1-p (corrp), masked:
+    min max: 0.000000 0.573800
+  Voxels with corrp > 0.95 (within mask):
+    count: 0   (corrp > 0.95)
+
+--- Contrast 4 ---
+  Raw t-stat (masked by skeleton):
+    min max: -2.115953 1.291500
+  TFCE 1-p (corrp), masked:
+    min max: 0.000000 0.363200
+  Voxels with corrp > 0.95 (within mask):
+    count: 0   (corrp > 0.95)
+
+=== Optional cluster (only runs if any contrast has voxels above threshold) ===
+No voxels with corrp > 0.95 in any contrast (within skeleton mask).
+Skipping cluster -- no meaningful suprathreshold clusters for publication.

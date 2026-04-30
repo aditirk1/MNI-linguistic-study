@@ -7,26 +7,34 @@ Fixes vs. the previous version:
 - ROI map: use plot_connectome with identity-style off-diagonals removed,
   no bogus colorbar, label every ROI
 
-Outputs to derivatives/figures/:
+Outputs to derivatives/figures/ (and copies to derivatives/results/figures/ for the same
+filenames, so slide figures sit with fig1–fig8):
+
   rois_mni.png
   group_fc_matrix.png
   connectome_glass.png
   predictor_distributions.png
-  fc_scatter.png  (only if fc_outcomes.csv is local)
+  fc_scatter.png  (only if fc_outcomes_motion.csv / fc_outcomes.csv is local)
+
+FC matrices are read from derivatives/nilearn_fc_motion/ (same source as fc_with_motion.py
+and the report GLM), not legacy derivatives/nilearn_fc/.
 """
 
 from pathlib import Path
 import glob
+import shutil
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from nilearn import plotting
 
-base = Path(r"C:\Users\Aditi\ds005613")
-fc_dir = base / "derivatives" / "nilearn_fc"
+base = Path(__file__).resolve().parent
+fc_dir = base / "derivatives" / "nilearn_fc_motion"
 out = base / "derivatives" / "figures"
+out_results = base / "derivatives" / "results" / "figures"
 out.mkdir(parents=True, exist_ok=True)
+out_results.mkdir(parents=True, exist_ok=True)
 
 roi_coords = [
     (-51, 22, 10),    # IFG_L
@@ -62,7 +70,7 @@ disp = plotting.plot_connectome(
 )
 disp.savefig(out / "rois_mni.png", dpi=200)
 disp.close()
-print("[OK] rois_mni.png")
+print("[OK] rois_mni.png ->", (out / "rois_mni.png").resolve())
 
 # ---------------------------------------------------------------------------
 # 2) Group-mean FC matrix (mask diagonal so off-diagonals show properly)
@@ -89,14 +97,14 @@ if mats:
         cbar_kws={"label": "Fisher-z (mean across subjects)"},
         square=True, linewidths=0.5, linecolor="white",
     )
-    plt.title(f"Group-mean language-network FC  (N={len(mats)})\n"
+    plt.title(f"Group-mean language-network FC  (N={len(mats)}, motion-regressed)\n"
               f"diagonal omitted; off-diagonal range "
               f"[{off_vals.min():.2f}, {off_vals.max():.2f}]",
               fontsize=10)
     plt.tight_layout()
     plt.savefig(out / "group_fc_matrix.png", dpi=200)
     plt.close()
-    print("[OK] group_fc_matrix.png")
+    print("[OK] group_fc_matrix.png ->", (out / "group_fc_matrix.png").resolve())
 
     # -----------------------------------------------------------------------
     # 3) Connectome glass-brain - threshold the OFF-DIAGONAL only, label nodes
@@ -115,13 +123,13 @@ if mats:
         edge_vmin=0, edge_vmax=vmax,
         display_mode="lyrz",
         title=(f"Mean language-network connectome  "
-               f"(top 50% edges, N={len(mats)})"),
+               f"(top 50% edges, N={len(mats)}, motion-regressed seeds)"),
         figure=fig,
         colorbar=True,
     )
     disp.savefig(out / "connectome_glass.png", dpi=200)
     disp.close()
-    print("[OK] connectome_glass.png")
+    print("[OK] connectome_glass.png ->", (out / "connectome_glass.png").resolve())
 
     # -----------------------------------------------------------------------
     # 3b) ROI legend (separate small image so the brain image stays clean)
@@ -137,7 +145,7 @@ if mats:
     plt.tight_layout()
     plt.savefig(out / "rois_legend.png", dpi=200)
     plt.close()
-    print("[OK] rois_legend.png")
+    print("[OK] rois_legend.png ->", (out / "rois_legend.png").resolve())
 
 else:
     print("[WARN] no FC matrices found - skipped FC heatmap and connectome")
@@ -160,13 +168,14 @@ if dm_path.exists():
     plt.tight_layout()
     plt.savefig(out / "predictor_distributions.png", dpi=200)
     plt.close()
-    print("[OK] predictor_distributions.png")
+    print("[OK] predictor_distributions.png ->", (out / "predictor_distributions.png").resolve())
 
 # ---------------------------------------------------------------------------
 # 5) Scatter plots (optional - only if fc_outcomes.csv is local)
 # ---------------------------------------------------------------------------
 fc_csv = None
-for cand in [fc_dir / "fc_outcomes.csv",
+for cand in [fc_dir / "fc_outcomes_motion.csv",
+             fc_dir / "fc_outcomes.csv",
              base / "fc_outcomes.csv",
              base / "derivatives" / "results" / "fc_outcomes.csv"]:
     if cand.exists():
@@ -196,5 +205,22 @@ if fc_csv and dm_path.exists():
         plt.tight_layout()
         plt.savefig(out / "fc_scatter.png", dpi=200)
         plt.close()
-        print(f"[OK] fc_scatter.png  (N={len(df)})")
-print("\nFigures in:", out)
+        print(f"[OK] fc_scatter.png (N={len(df)}) ->", (out / "fc_scatter.png").resolve())
+
+MIRROR_NAMES = (
+    "rois_mni.png",
+    "group_fc_matrix.png",
+    "connectome_glass.png",
+    "rois_legend.png",
+    "predictor_distributions.png",
+    "fc_scatter.png",
+)
+for _name in MIRROR_NAMES:
+    _src = out / _name
+    if _src.is_file():
+        _dst = out_results / _name
+        shutil.copy2(_src, _dst)
+        print("     mirror ->", _dst.resolve())
+
+print("\nPrimary output dir:", out.resolve())
+print("Also copied to:     ", out_results.resolve())

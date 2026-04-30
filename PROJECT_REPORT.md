@@ -6,7 +6,10 @@
 **Author:** Aditi *(your details)*
 **Institution / course:** Columbia University, Spring 2026 — Multimodal Neuroimaging
 **Dataset:** OpenNeuro `ds005613` (NEBULA101)
-**Date of report:** April 2026
+**Date of report:** 29 April 2026 (updated after full preprocessing and group inference)
+
+**Primary narrative document (Word, embedded PNG figures):** build or refresh with  
+`.\.venv\Scripts\python.exe build_project_report_docx.py` → output **`NEBULA_Multimodal_Report.docx`** in this folder. The Markdown file remains a technical supplement; figures in `.md` depend on viewer support.
 
 ---
 
@@ -17,7 +20,25 @@ This report is written so that **two very different readers** can both follow it
 * a **first-year graduate student** who has never opened an MRI image, and
 * a **seasoned imaging neuroscientist** who wants to verify that the methods are defensible.
 
-Every technical term is defined the first time it is used. Acronyms are spelled out. Sections marked **`[INSERT RESULT]`** or **`[INSERT INTERPRETATION]`** are deliberate placeholders to be filled in once the two pipelines (`SPM normalisation + functional connectivity`, and `TBSS + randomise`) finish running on the night of 28–29 April 2026.
+Every technical term is defined the first time it is used. Acronyms are spelled out. **All primary pipelines are complete:** SPM25 normalisation of resting BOLD for **n = 51**, Nilearn FC + group GLM (`fc_with_motion.py`), FSL TBSS through `tbss_4_prestats`, and **`randomise` with TFCE** (5,000 permutations) on skeletonised FA. **Where a figure was not exported to PNG/PDF**, this document gives the **exact path** to the data used to generate it.
+
+**Quick index — key result files on disk**
+
+| Output | Location |
+|--------|----------|
+| SPM smoothed MNI BOLD (inputs to FC) | `sub-pp*/ses-01/func/swsub-*_task-rest_run-001_bold.nii` (51 files) |
+| SPM normalisation log | `normalize_bold_log.txt` (finished 29 Apr 2026 05:12 EDT) |
+| Per-subject Fisher-z FC (6×6) | `derivatives/nilearn_fc_motion/sub-pp*_fc_matrix.npy` |
+| FC subject-level table + FD | `derivatives/nilearn_fc_motion/fc_outcomes_motion.csv` |
+| FC group GLM (tables) | `derivatives/nilearn_fc_motion/fc_glm_motion_results.csv` |
+| TBSS skeletonised FA (4D) | `derivatives/dwi_processed/tbss/stats/all_FA_skeletonised.nii.gz` |
+| TBSS group design | `derivatives/dwi_processed/tbss/stats/design.mat`, `design.con` |
+| `randomise` TFCE corrected-p maps | `derivatives/dwi_processed/tbss/stats/tbss_results_tfce_corrp_tstat{1..4}.nii.gz` |
+| `randomise` voxelwise t-stats | `derivatives/dwi_processed/tbss/stats/tbss_results_tstat{1..4}.nii.gz` |
+| `randomise` console log | `derivatives/randomise_log.txt` |
+| TBSS FWE inspection (automated) | `derivatives/tbss_inspection_report.txt` (generated 29 Apr 2026 15:38 EDT) |
+| Archive copy of stats + reports | `derivatives/tbss_randomise_archive_20260429_153849/` |
+| FA QC montage (HTML) | `derivatives/dwi_processed/tbss/FA/slicesdir/index.html` |
 
 A short cheat-sheet of acronyms used everywhere in this document:
 
@@ -66,7 +87,7 @@ This project follows the NEBULA101 framework (Pliatsikas et al., 2024) and uses 
 
    where \(p_i\) is the proportion of daily exposure (across speaking, hearing, reading, writing, etc.) attributable to language *i*. Captures *balance*: a perfectly balanced bilingual scores high (\(H \approx 1\) for a 50/50 user); a strongly dominant speaker scores low (\(H \to 0\)).
 
-The two are mathematically related but *not* redundant — in this 51-subject sample they correlate at \(r \approx 0.47\). A clean dissociation between them therefore cannot be guaranteed, but partial regression coefficients (the unique variance each contributes after the other is controlled) remain interpretable.
+The two are mathematically related but *not* redundant — in this 51-subject sample they correlate at **\(r = 0.433\)** (Pearson on `shared_design_matrix.csv` rows matching the analysis cohort). A clean dissociation between them therefore cannot be guaranteed, but partial regression coefficients (the unique variance each contributes after the other is controlled) remain interpretable.
 
 ### 1.3 The research question
 
@@ -184,7 +205,17 @@ The distribution is unimodal, modal at 5, with both monolingual and decalingual 
 
 #### 3.2.2 Pearson correlations among predictors and covariates
 
-`[INSERT TABLE: corr(nlang, entropy, age, edu, sex)]` — to be filled in by `corr_table.py` once preprocessing is complete. Expected key value: `corr(nlang, entropy) ≈ 0.47` (from prior calculation on this cohort).
+Correlation matrix (51 subjects in analysis; variables as in `shared_design_matrix.csv`):
+
+|  | nlang | entropy | age | edu | sex_binary |
+|--|-------|---------|-----|-----|------------|
+| **nlang** | 1.000 | 0.433 | 0.008 | 0.296 | 0.072 |
+| **entropy** | 0.433 | 1.000 | −0.127 | −0.009 | 0.064 |
+| **age** | 0.008 | −0.127 | 1.000 | 0.712 | −0.095 |
+| **edu** | 0.296 | −0.009 | 0.712 | 1.000 | −0.090 |
+| **sex_binary** | 0.072 | 0.064 | −0.095 | −0.090 | 1.000 |
+
+*Labelling note:* `entropy` = `entropy_curr_tot_exp` in the CSV.
 
 ---
 
@@ -232,17 +263,16 @@ The analysis is structured as **two parallel pipelines** that converge in the di
                    pairwise Pearson FC,               on group-mean skeleton
                    Fisher-z transform)
                              ▼                                   ▼
-                  Subject-level FC matrix              Skeletonised FA per voxel
-                  (15 unique edges per subj.)         (n voxels × n subjects)
+                  Subject-level FC summary            Skeletonised FA per voxel
+                  (full 6×6 Fisher-z saved;            (101,510 voxels in skeleton
+                   group GLM on 3 derived outcomes)    mask × 51 subjects)
                              ▼                                   ▼
                   Second-level GLM                     FSL randomise
-                  (statsmodels OLS,                   (5,000 permutations,
-                   edge ~ nlang_z + entropy_z +       TFCE FWE-corrected,
-                   age_z + edu_z + sex_binary +       same 5-covariate design)
+                  (statsmodels OLS; three            (5,000 permutations;
+                   outcomes; covariates incl.        TFCE FWE corrp maps)
                    mean_FD_z)
                              ▼                                   ▼
-                  T-statistics + p-values              Whole-brain FA t-maps
-                  for each edge × predictor            (FWE p < 0.05)
+                  Coefficients, t, p (CSV)          t_stat + corrp volumes (NIfTI)
 ```
 
 ### 5.1 fMRI preprocessing (SPM25, batch script `normalize_bold_to_mni.m`)
@@ -268,31 +298,31 @@ The smoothed `sw*.nii` files are the input to functional connectivity extraction
 
 ### 5.2 fMRI functional connectivity (Python / `nilearn`, script `fc_with_motion.py`)
 
-Six **a priori MNI seed coordinates** representing the canonical left-lateralised language network and bilateral salience/control hubs:
+Six **a priori MNI seed coordinates** (same as implemented in code; **8 mm** spherical radius, TR = 2.0 s):
 
-| Label | MNI (x, y, z) | Network |
+| Label | MNI (x, y, z) | Network role |
 |---|---|---|
-| L_IFG_pars_oper (Broca) | -50, 18, 18 | Language |
-| L_pSTS / Wernicke | -54, -42, 6 | Language |
-| L_AnG | -48, -54, 30 | Language / DMN |
-| L_ATL | -54, 0, -18 | Language (semantic) |
-| R_IFG | 50, 18, 18 | Right-hemisphere language analogue |
-| L_Insula (control hub) | -36, 18, 4 | Salience / Multiple-Demand |
+| IFG_L | (−51, 22, 10) | Left inferior frontal (Broca homologue) |
+| STG_L | (−56, −14, 4) | Left superior temporal |
+| AngG_L | (−46, −62, 28) | Left angular gyrus |
+| SMA_L | (−4, 4, 52) | Supplementary motor |
+| IFG_R | (51, 22, 10) | Right inferior frontal |
+| STG_R | (56, −14, 4) | Right superior temporal |
 
 For each subject:
 
-1. Extract average BOLD time-series in a 6 mm radius sphere at each ROI from `swsub-*.nii`.
-2. Detrend, band-pass filter 0.01–0.1 Hz, standardise.
-3. Regress out the six motion parameters from `rp_*.txt` (Power 6).
-4. Compute the 6×6 Pearson correlation matrix; Fisher r-to-z transform.
-5. Extract the 15 unique upper-triangular edges as the dependent variable.
+1. Prefer **`swsub-*_task-rest_run-001_bold.nii`** (SPM-normalised, smoothed MNI BOLD); fall back to `w*` or native BOLD if absent.
+2. Extract mean time-series per seed with `NiftiSpheresMasker`: detrend, **band-pass 0.01–0.1 Hz**, z-score (`standardize=True`).
+3. Regress out **six** realignment parameters from `rp_*task-rest*.txt` as confounds.
+4. Compute the **6×6 Pearson** correlation matrix; Fisher **r → z** on the full matrix.
+5. Save **`derivatives/nilearn_fc_motion/<sub>_fc_matrix.npy`** (full matrix). Derived outcomes for the group GLM: **mean of all 15 upper-triangle z-values** (`mean_lang_fc`), **IFG_L–STG_L**, **IFG_R–STG_R**.
 
 ### 5.3 fMRI second-level GLM
 
-For each edge (15 in total) the script fits
+For **each** of **three outcomes** the script fits the same model:
 
 \[
-\text{edge}_z \;=\; \beta_0
+y \;=\; \beta_0
    + \beta_1\,\text{nlang}_z
    + \beta_2\,\text{entropy}_z
    + \beta_3\,\text{age}_z
@@ -302,7 +332,7 @@ For each edge (15 in total) the script fits
    + \varepsilon
 \]
 
-across the 51 subjects using `statsmodels.OLS`. Multiple comparisons across the 15 edges are addressed with **FDR (Benjamini–Hochberg)** at q < 0.05 on the two predictors of interest (`nlang_z`, `entropy_z`).
+across **n = 51** using `statsmodels.OLS` (`statsmodels.formula.api.ols`). **Multiple comparisons:** for the two predictors of interest (`nlang_z`, `entropy_z`), the pipeline also reports **uncorrected p** and **`p × 3`** as a simple **Bonferroni** adjustment across the **three outcomes** (implemented in `fc_glm_motion_results.csv` as `p_bonf_3outcomes`). *Per-edge* tests on all 15 edges were **not** run in this codebase; extending the script to 15 edges × 2 predictors would warrant **FDR** or analogous control.
 
 ### 5.4 DWI preprocessing (FSL in WSL Ubuntu, script `dwi_preprocess_fsl.sh`)
 
@@ -324,18 +354,18 @@ All 51 subjects completed by **28 Apr 2026 11:39 EDT** — confirmed by `dwi_log
 TBSS aligns each subject's FA map to the **FMRIB58_FA** standard template, then projects each FA value onto a **group mean white-matter skeleton**. This gives a 4D image `all_FA_skeletonised.nii.gz` (skeleton voxels × 51 subjects) on which voxelwise statistics can be performed without registration error.
 
 ```
-tbss_1_preproc *_FA.nii.gz             ✓ (28 Apr 21:30 EDT, 102 files in FA/)
-tbss_2_reg -T                          [running ~2-4 h]
-tbss_3_postreg -S
-tbss_4_prestats 0.2
+tbss_1_preproc *_FA.nii.gz             ✓ (28 Apr 2026 ~21:30 EDT; FA/slicesdir QC)
+tbss_2_reg -T                          ✓ (see derivatives/tbss2_log.txt)
+tbss_3_postreg -S                     ✓ (derivatives/tbss3_log.txt)
+tbss_4_prestats 0.2                   ✓ (derivatives/tbss4_log.txt; thresh.txt)
 randomise -i all_FA_skeletonised \
           -o tbss_results \
           -d design.mat -t design.con \
           -m mean_FA_skeleton_mask \
-          -n 5000 --T2
+          -n 5000 --T2                  ✓ (derivatives/randomise_log.txt; 29 Apr 2026)
 ```
 
-`randomise` runs **5,000 permutations** with **TFCE** (Threshold-Free Cluster Enhancement) and outputs **family-wise-error-corrected p-maps** for each contrast. The contrasts are:
+`randomise` ran **5,000 permutations** with **TFCE** (`--T2`) and wrote **TFCE-corrected p-maps** (`tbss_results_tfce_corrp_tstat*.nii.gz`) and **voxelwise t-maps** (`tbss_results_tstat*.nii.gz`) under `derivatives/dwi_processed/tbss/stats/`. The contrasts are:
 
 | Contrast | β vector | Interpretation |
 |---|---|---|
@@ -369,30 +399,40 @@ Voxels with `tbss_results_tfce_corrp_tstatN.nii.gz > 0.95` are significant at FW
 * Mean Framewise Displacement (FD) per subject is computed inside `fc_with_motion.py` and entered as a covariate.
 * No subject was excluded a priori for motion; instead motion is statistically controlled.
 
-`[INSERT TABLE 6.1: per-subject mean FD, max FD, % volumes with FD > 0.5 mm]`
+**Summary: mean FD (Power, mm)** — from `derivatives/nilearn_fc_motion/fc_outcomes_motion.csv` (all 51 participants used in GLM):
+
+| Statistic | Value (mm) |
+|-----------|------------|
+| Mean | 0.167 |
+| SD | 0.078 |
+| Min | 0.040 |
+| Median | 0.160 |
+| Max | 0.424 |
+
+*Optional figure:* histogram or boxplot of `mean_FD` from the same CSV. Per-volume FD > 0.5 mm and scrubbing were not tabulated in this pipeline.
 
 ### 6.2 DWI
 
 * `eddy_quad` group QC PDFs are stored under `derivatives/validation/dwi/fsl/squad/`.
 * Per-subject SQUAD reports are at `derivatives/validation/dwi/fsl/sub-pp*_qc_updated.pdf`.
-* `tbss_1_preproc` automatically generated `slicesdir/index.html` reports of every subject's FA map for visual review prior to registration.
+* `tbss_1_preproc` automatically generated **`derivatives/dwi_processed/tbss/FA/slicesdir/index.html`** — open in a browser for a montage of all input FA images before registration.
 
-`[INSERT FIGURE 6.2: representative slicesdir snapshot of FA maps at FA = 0.2 contour]`
+**Figure (HTML, not a single PNG):** `file:///C:/Users/Aditi/ds005613/derivatives/dwi_processed/tbss/FA/slicesdir/index.html` (path as seen from Windows).
 
 ### 6.3 Anatomical
 
-* SPM segmentation succeeded on all subjects (logged in `normalize_bold_log.txt` as `OK`).
-* `[INSERT FIGURE 6.3: a 6-panel grid with one normalised T1 + the FMRIB58 template overlaid for visual sanity-check of MNI alignment]`
+* SPM segmentation and normalisation completed for **all 51** subjects (`normalize_bold_log.txt` — run finished **29 Apr 2026 05:12:48 EDT**).
+* **Figure / QC:** visualise any subject's **`swsub-*_task-rest_run-001_bold.nii`** in **FSLeyes / MRIcroGL / nilearn** overlaid on MNI template (e.g. MNI152 T1 1 mm) to confirm alignment. Deformation fields: `sub-pp*/ses-01/anat/y_*T1w.nii` per subject.
 
 ---
 
 ## 7. Results
 
-> *This section will be filled in once the SPM normalisation completes (~5:30 AM Wed 29 Apr 2026) and `randomise` finishes (~2 h after `tbss_4_prestats`).*
+All sections below reflect **completed** processing as of **29 April 2026**: 51/51 `sw*` BOLD volumes, 51/51 FC matrices, TBSS through `randomise`.
 
 ### 7.1 Functional connectivity (rs-fMRI, n = 51)
 
-#### 7.1.0 ROIs actually used in the FC analysis (overrides §5.2)
+#### 7.1.0 ROIs used in the FC analysis (authoritative; matches `fc_with_motion.py`)
 
 The implemented script `fc_with_motion.py` uses these six MNI seeds (8-mm-radius spheres):
 
@@ -464,73 +504,175 @@ across n = 51 subjects.
 * **Neither `nlang` nor `entropy` predicts language-network FC** in any of the three pre-registered outcomes. All p-values for the two predictors of interest are between 0.19 and 0.86; none survive correction for the three outcomes tested.
 * **Sex is a robust covariate**: males show systematically lower mean FC and lower IFG–STG coupling on both sides (p = 0.001 – 0.012; β ≈ -0.20 to -0.29). This is consistent with prior reports of sex differences in resting-state coupling.
 * **Motion regression worked**: mean FD reaches significance only on the IFG_STG_right outcome (p = 0.023), and is in the expected positive direction (more motion → spuriously higher correlation). Including it as a covariate properly controls for that artefact.
-* **Effect-size context**: the largest absolute standardised β for either predictor of interest is 0.043 for `entropy_z` on `mean_lang_fc`, equivalent to about a 0.04-z change in FC for a 1-SD change in entropy. With n = 51 and σ ≈ 0.32 for the outcome, this study had ~80% power to detect r ≈ 0.38 — so the null result is informative for moderate-to-large effects but cannot rule out very small effects.
+* **Effect-size context:** standardized β for `entropy_z` on `mean_lang_fc` is modest (|β| ≈ 0.043). With **n = 51**, the analysis is **more sensitive to medium–large than to very small** population effects; the **null** result does not exclude weak associations.
 
 #### 7.1.4 Connectivity matrix overview (figure)
 
-`[INSERT FIGURE 7.1.4: 6 × 6 group-mean Fisher-z FC matrix from sub-pp*_fc_matrix.npy averaged across n=51]`
+**On-disk figures:** group FC matrices and connectomes appear in **`derivatives/figures/`**, **`derivatives/fc_unified_n51/`**, and **`derivatives/results/figures/fig4_fc_results.png`** — all are **embedded in the auto-generated figure gallery** (see markers `REPORT_FIGURES_AUTO` before §8).  
+**Data for replotting:** average the 51 files `derivatives/nilearn_fc_motion/sub-pp*_fc_matrix.npy` (each 6×6 Fisher-z) if you need a matrix from the **final motion-regressed pipeline** exactly.
 
-#### 7.1.5 Per-edge expanded GLM (15 edges × 2 predictors)
+#### 7.1.5 Per-edge expanded GLM (optional extension)
 
-`[INSERT TABLE 7.1.5: optional - if time, run the GLM on each of the 15 edges separately for completeness; controls for FDR across 30 edge × predictor tests]`
+Not run in the current codebase. To extend: loop over all 15 upper-triangular edges, fit the same GLM, apply **FDR** across **30 tests** (15 edges × 2 predictors) or pre-register a smaller edge family. Raw per-subject edge values can be extracted from each `*_fc_matrix.npy`.
 
 ### 7.2 White-matter microstructure (DWI / TBSS, n = 51)
 
-#### 7.2.1 Mean FA skeleton
+#### 7.2.1 Mean FA skeleton and input to `randomise`
 
-`[INSERT FIGURE 7.2.1: mean FA skeleton overlaid on FMRIB58 template]`
+| File | Path |
+|------|------|
+| 4D skeletonised FA (51 subjects) | `derivatives/dwi_processed/tbss/stats/all_FA_skeletonised.nii.gz` |
+| Mean FA on skeleton | `derivatives/dwi_processed/tbss/stats/mean_FA_skeleton.nii.gz` |
+| Binary analysis mask | `derivatives/dwi_processed/tbss/stats/mean_FA_skeleton_mask.nii.gz` |
+| Voxels in mask (QC) | **101,510** (from `derivatives/tbss_inspection_report.txt`) |
 
-#### 7.2.2 `nlang` effect on FA
+**Figure:** open **`mean_FA_skeleton.nii.gz`** with **mean_FA_skeleton_mask** as overlay in FSLeyes; underlay standard **FMRIB58_FA** from FSL (`$FSLDIR/data/standard/FMRIB58_FA`). **Raster QC:** TBSS **`slicesdir`** PNGs are embedded in the **figure gallery** before §8 (see `fig3_tbss.png` and `FA/slicesdir/*.png`).
 
-| Cluster | Peak MNI (x, y, z) | k (voxels) | Peak t | Peak p_FWE | Tract atlas label |
-|---|---|---|---|---|---|
-| 1 | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| 2 | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` | `[INSERT]` |
-| … | | | | | |
+#### 7.2.2–7.2.3 Voxelwise inference (`randomise` + TFCE) — **null at FWE *p* < 0.05**
 
-`[INSERT FIGURE 7.2.2: tbss_results_tfce_corrp_tstat1 thresholded at 0.95, overlaid on mean FA skeleton]`
+**Command & log:** see `derivatives/randomise_log.txt` (header: `-n 5000 --T2`).  
+**Automated skeleton-masked summary:** `derivatives/tbss_inspection_report.txt` (generated **2026-04-29 15:38:49 EDT**). Convention: **1 − p_FWE** stored in `*_tfce_corrp_*` files; **voxels significant at *p*<0.05 FWE** satisfy **corrp > 0.95**.
 
-#### 7.2.3 `entropy` effect on FA
+| Contrast | Map (t) | Map (TFCE corrp) | Raw *t* range (masked) | Max corrp | Voxels corrp **> 0.95** |
+|----------|---------|------------------|-------------------------|-----------|-------------------------|
+| C1: **+nlang** | `tbss_results_tstat1.nii.gz` | `tbss_results_tfce_corrp_tstat1.nii.gz` | −1.59 to +2.29 | 0.594 | **0** |
+| C2: **−nlang** | `tbss_results_tstat2.nii.gz` | `tbss_results_tfce_corrp_tstat2.nii.gz` | −2.29 to +1.59 | 0.366 | **0** |
+| C3: **+entropy** | `tbss_results_tstat3.nii.gz` | `tbss_results_tfce_corrp_tstat3.nii.gz` | −1.29 to +2.12 | 0.574 | **0** |
+| C4: **−entropy** | `tbss_results_tstat4.nii.gz` | `tbss_results_tfce_corrp_tstat4.nii.gz` | −2.12 to +1.29 | 0.363 | **0** |
 
-`[INSERT TABLE 7.2.3 + FIGURE 7.2.3 — same structure as above for tstat3/tstat4]`
+**Interpretation:** there are **no white-matter skeleton voxels** showing a significant linear association of FA with **`nlang`** or **`entropy`** at **TFCE-based FWE *p* < 0.05** with the current 5-covariate model and 5,000 permutations. Unthresholded *t*-maps remain available for descriptive visualization or more liberal/exploratory thresholds (not reported here as confirmatory).
+
+**Archived copy** of stats directory + inspection report: `derivatives/tbss_randomise_archive_20260429_153849/`.
+
+**Figures for slides:** (1) mean skeleton; (2) optional **glass-brain / ortho** of `tbss_results_tstat1` at a **descriptive** uncorrected threshold with caption that it is **not** FWE-significant; (3) screenshot noting **max corrp < 0.95** for transparency.
 
 ### 7.3 Cross-modal convergence
 
-`[INSERT INTERPRETATION: do regions showing FA effects of nlang/entropy spatially overlap or terminate in regions whose FC also shows the same effect? E.g., does the arcuate fasciculus show FA effects while it connects two FC-significant nodes?]`
+**Both modalities yielded null inferential results for the primary predictors of interest** under the pre-specified models: no TBSS FWE-significant effects of **`nlang`** or **`entropy`** on skeletonised FA, and no significant partial associations with the three FC outcomes after Bonferroni adjustment across those outcomes. Therefore there is **no basis** to claim overlapping structure–function localization (e.g. tract FA effects co-localizing with FC effects) for these predictors in this sample. **Secondary associations** (not multimodal hypotheses) did appear: **sex** and (**motion**, for one FC outcome) showed associations with FC as reported in §7.1.
 
 ---
 
-## 8. Discussion
+<!-- REPORT_FIGURES_AUTO_BEGIN -->
 
-> *This section is to be drafted in full after results are populated. Below is a scaffold of the points the discussion must cover.*
+## Figure gallery (embedded from existing project files)
+
+The images below are **not** recomputed here; they are **linked** from paths under `derivatives/`. 
+Re-run **`embed_report_figures.py`** after you add or replace PNGs.
+
+### A. Curated results figures (`derivatives/results/figures/`)
+
+*Design / predictors summary (`derivatives/results/figures/`).*
+
+![Fig 1 predictors](derivatives/results/figures/fig1_predictors.png)
+
+*Methods pipeline schematic.*
+
+![Fig 2 pipeline](derivatives/results/figures/fig2_pipeline.png)
+
+*TBSS / skeleton / group diffusion QC.*
+
+![Fig 3 TBSS](derivatives/results/figures/fig3_tbss.png)
+
+*Functional connectivity results summary.*
+
+![Fig 4 FC results](derivatives/results/figures/fig4_fc_results.png)
+
+*Tabular results figure.*
+
+![Fig 5 results table](derivatives/results/figures/fig5_results_table.png)
+
+*Power / effect-size context (if generated).*
+
+![Fig 6 power](derivatives/results/figures/fig6_power.png)
+
+
+### B. General analysis figures (`derivatives/figures/`)
+
+*`derivatives/figures/` — cohort demographics / predictors.*
+
+![Predictor distributions](derivatives/figures/predictor_distributions.png)
+
+*Seed ROIs in MNI space.*
+
+![ROIs on MNI](derivatives/figures/rois_mni.png)
+
+*ROI colour legend.*
+
+![ROI legend](derivatives/figures/rois_legend.png)
+
+*Group-mean connectivity matrix.*
+
+![Group FC matrix](derivatives/figures/group_fc_matrix.png)
+
+*Glass-brain connectome.*
+
+![Connectome glass brain](derivatives/figures/connectome_glass.png)
+
+*Scatter / predictor vs FC.*
+
+![FC scatter](derivatives/figures/fc_scatter.png)
+
+
+### C. Unified n=51 FC outputs (`derivatives/fc_unified_n51/`)
+
+*`fc_unified_n51` — 51-subject FC matrix.*
+
+![Unified group FC matrix](derivatives/fc_unified_n51/group_fc_matrix_unified.png)
+
+![Unified connectome](derivatives/fc_unified_n51/connectome_unified.png)
+
+![Unified FC scatter](derivatives/fc_unified_n51/fc_scatter_unified.png)
+
+
+### D. CONN-pipeline-style FC (`derivatives/fc_conn_preprocessed/`)
+
+*`fc_conn_preprocessed` variant.*
+
+![CONN-style FC matrix](derivatives/fc_conn_preprocessed/group_fc_matrix_conn.png)
+
+![CONN-style connectome](derivatives/fc_conn_preprocessed/connectome_conn.png)
+
+![CONN-style FC scatter](derivatives/fc_conn_preprocessed/fc_scatter_conn.png)
+
+
+### E. DWI / TBSS QC montages (`slicesdir`) 
+
+*FSL `slicesdir` montage after `tbss_1_preproc` (`FA/slicesdir/grota.png` … `groti.png` are companion panels).*
+
+![TBSS FA slicesdir montage A](derivatives/dwi_processed/tbss/FA/slicesdir/grota.png)
+
+*Single-subject FA snapshot (`sub-pp*_FA_FA.png` exists for each cohort ID).*
+
+![Example subject FA (TBSS input)](derivatives/dwi_processed/tbss/FA/slicesdir/sub-pp128_FA_FA.png)
+
+*Alternate `slicesdir` at `tbss/slicesdir/` (post-registration stage).*
+
+![TBSS root slicesdir grota](derivatives/dwi_processed/tbss/slicesdir/grota.png)
+
+
+---
+
+**Note:** NIfTI statistical maps (`tbss_results_*.nii.gz`) are not shown inline; open them in FSLeyes / MRIcroGL. PDF QC reports live under `derivatives/validation/`.
+
+<!-- REPORT_FIGURES_AUTO_END -->
+
+## 8. Discussion
 
 ### 8.1 Summary of findings
 
-`[INSERT 1-paragraph plain-language summary of what was and was not found, separately for nlang and entropy and separately for the two modalities.]`
+In **n = 51** multilingual adults from NEBULA101 (all with T1w, resting fMRI, and DWI), we tested whether **self-reported number of languages (`nlang`)** and **Shannon entropy of daily language exposure (`entropy`)** explained variance in **(a) seed-based resting functional connectivity** among six bilateral language-related regions (after SPM normalisation to MNI, motion regression, and covariates) and **(b) voxelwise FA** on the TBSS skeleton (after covariates), using **TFCE/FWE** correction for the diffusion analysis and **Bonferroni across three FC outcomes** for the primary fMRI comparisons. **We did not find significant associations** of **`nlang`** or **`entropy`** with either modality under these pre-specified inferential thresholds. **Sex** showed replicable associations with FC (lower coupling in male participants for the chosen seeds); **mean head motion** covaried with one FC outcome (**right IFG–STG**), motivating inclusion of **`mean_FD_z`**.
 
 ### 8.2 Functional-connectivity findings in context
 
-* If positive `nlang` / `entropy` effects in language-IFG-pSTS or DMN-overlapping edges → consistent with **enhanced linguistic-network coupling** in more diverse / more balanced multilinguals.
-* If negative effects (decreased FC with multilingualism) → may reflect **neural efficiency** (Mechelli et al., 2004) — better-trained networks coupling less at rest.
-* Null results to be discussed in terms of (a) limited sample, (b) seed-based limitations, (c) heterogeneity of the multilingual sample.
-
-`[INSERT INTERPRETATION]`
+The **null FC results** for multilingualism predictors are compatible with several non-exclusive accounts: (1) **true effect sizes** linking questionnaire-derived experience to **specific seed-based FC** may be smaller than detectable in *n* = 51; (2) **multilingual experience** may manifest in **task-evoked** or **network-level (ICA)** measures rather than these **a priori** edges; (3) **partial collinearity** between `nlang` and `entropy` (*r* ≈ 0.43) limits unique variance; (4) cross-sectional **selection** — highly educated multilinguals may show **compressed variance** on brain metrics. The **sex effects** should be reported as **secondary findings** and not over-interpreted without preregistration.
 
 ### 8.3 White-matter microstructure findings in context
 
-* Tracts to highlight a priori: **arcuate fasciculus** (canonical dorsal language stream), **inferior longitudinal fasciculus** and **uncinate fasciculus** (ventral semantic stream), **superior longitudinal fasciculus** (control/attention), **corpus callosum genu/body** (interhemispheric integration).
-* Sign of effect matters: most prior multilingual literature reports **higher FA** in these tracts in multilinguals, but recent work suggests **dose-dependent, U-shaped** relationships.
-
-`[INSERT INTERPRETATION]`
+**Null TBSS results at FWE** do not prove the absence of microstructural correlates of multilingualism; they indicate that **no voxel on the group FA skeleton** showed a **linear** FA association with **`nlang`** or **`entropy`** strong enough to survive **TFCE permutation testing** given the model and sample. Possibilities include **non-linear** relationships (U-shaped dose effects suggested in some papers), **heterogeneous directionality** across individuals that cancels at the group mean, or **insensitivity** of single-shell FA alone relative to **NODDI** or **fixel** metrics.
 
 ### 8.4 Independent contributions of `nlang` vs. `entropy`
 
-This is the central conceptual contribution of the project. With both predictors in the same model, the partial regression coefficients estimate **unique variance**. Because `r(nlang, entropy) ≈ 0.47`, the two predictors share ~22% variance, so a strict double-dissociation is not guaranteed. The defensible interpretation is:
-
-* **`nlang` unique** ⇒ effects of *how many* languages a person juggles, holding day-to-day balance constant.
-* **`entropy` unique** ⇒ effects of *how balanced* daily exposure is, holding the count constant.
-
-`[INSERT INTERPRETATION]`
+Partial coefficients in the FC models were uniformly small and non-significant for both predictors. The diffusion maps likewise showed **no FWE significance** for contrasts isolating each regressor. A **dissociation** (one predictor significant in WM and the other in FC) was **not observed**.
 
 ### 8.5 Limitations
 
@@ -553,7 +695,7 @@ This is the central conceptual contribution of the project. With both predictors
 
 ### 8.7 Conclusion
 
-`[INSERT 1-paragraph closing statement once results are in.]`
+Using a **multimodal pipeline** appropriate for a honours-level project — **SPM25** MNI normalisation, **Nilearn** FC with **motion covariates**, and **TBSS + randomise/TFCE** — we **did not** detect **statistically significant** associations of **`nlang`** or **`entropy`** with **pre-specified FC summaries** or **skeletonised FA** in this **n = 51** subset. The project nonetheless delivers a **reproducible** analysis path and **openly documented outputs** under `derivatives/` for secondary exploration (e.g. Alice-localiser ROIs, NODDI, or expanded edge-wise models).
 
 ---
 
@@ -589,15 +731,15 @@ Stored as `shared_design_matrix.csv` (51 × 10: `participant_id`, raw predictors
 | File | Purpose | Status |
 |---|---|---|
 | `realign_missing_18.m` | SPM realign-estimate (motion params) for the rs-fMRI run of all 51 subjects | ✅ Done |
-| `normalize_bold_to_mni.m` | SPM segment + coreg + normalise + smooth (the *current* overnight job) | ⏳ Running 28–29 Apr 2026 |
-| `fc_with_motion.py` | Nilearn FC extraction + second-level GLM with 6-motion + mean FD covariates | Will be run once `sw*.nii` exist |
-| `dwi_preprocess_fsl.sh` | FSL eddy + dtifit per subject | ✅ Done 28 Apr 11:39 EDT |
-| `run_tbss_pipeline.sh` | TBSS 1–4 in WSL | ⏳ Running (`_2_reg` started 28 Apr 21:30 EDT) |
+| `normalize_bold_to_mni.m` | SPM segment + coreg + normalise + smooth | ✅ Done (51/51; log finished 29 Apr 2026 05:12 EDT) |
+| `fc_with_motion.py` | Nilearn FC extraction + second-level GLM with 6-motion + mean FD covariates | ✅ Done (`derivatives/nilearn_fc_motion/`) |
+| `dwi_preprocess_fsl.sh` | FSL eddy + dtifit per subject | ✅ Done |
+| `run_tbss_pipeline.sh` | TBSS 1–4 in WSL | ✅ Done |
 | `make_tbss_design.py` | Build `design.mat` and `design.con` for `randomise` | ✅ Done |
-| `alice_localizer_spm_firstlevel.m` | First-level GLM for the *Alice* language localiser (not in core analysis but available for future ROI definition) | Prepared, not yet executed |
-| `tbss_design_matrix.py` | Earlier helper to build TBSS design (deprecated by `make_tbss_design.py`) | n/a |
-| `fetch_fmri.py`, `dwi check.py` | DataLad retrieval + completeness audit | ✅ |
-| `second_level_glm.py` | Stand-alone GLM utility (deprecated by `fc_with_motion.py`) | n/a |
+| `alice_localizer_spm_firstlevel.m` | First-level GLM for the *Alice* language localiser | Prepared, not executed |
+| `tbss_design_matrix.py` | Earlier TBSS design helper | Deprecated |
+| `embed_report_figures.py` | Inserts/updates embedded PNG gallery in `PROJECT_REPORT.md` | Run after adding figures under `derivatives/` |
+| `second_level_glm.py` | Stand-alone GLM utility | Deprecated |
 
 ### D. Compute log (key milestones)
 
@@ -606,12 +748,13 @@ Stored as `shared_design_matrix.csv` (51 × 10: `participant_id`, raw predictors
 | 26 Apr 2026 | Recovery of DataLad symlinks; subset finalised at n = 51 |
 | 27 Apr | rs-fMRI motion-parameter generation with SPM realign-estimate |
 | 28 Apr 09:34 – 11:39 | DWI preprocessing (eddy + dtifit) for all 51 subjects |
-| 28 Apr 15:33 | First (broken) launch of `normalize_bold_to_mni.m` — failed at SPM Segment due to `ngaus` parameter typo |
-| 28 Apr 20:04 | Bug fixed (`ngaus_per_tissue(k)`); relaunched. Sub-pp128 completed in 11 min, confirming fix. |
-| 28 Apr 21:30 | `tbss_1_preproc` finished (102 files in FA/) |
-| 28 Apr 21:30 → ~01:00 (next) | `tbss_2_reg -T` running |
-| 29 Apr ~05:30 | Expected completion of all 51 SPM normalisations |
-| 29 Apr morning | Run `fc_with_motion.py` on `sw*.nii`; run `randomise` on TBSS skeletonised FA |
+| 28 Apr 15:33 | First launch of `normalize_bold_to_mni.m` — Segment failed (`ngaus` batch bug) |
+| 28 Apr 20:04 | Bug fixed; SPM normalisation relaunched |
+| 28 Apr ~21:30 | `tbss_1_preproc` completed |
+| 28–29 Apr | `tbss_2_reg` / `tbss_3_postreg` / `tbss_4_prestats` (see `derivatives/tbss*_log.txt`) |
+| 29 Apr ~05:12 | **All 51** subjects: SPM `sw*` BOLD complete |
+| 29 Apr ~15:38 | **`randomise` finished**; `tbss_inspection_report.txt` + archive under `derivatives/tbss_randomise_archive_20260429_153849/` |
+| 29 Apr | **`fc_with_motion.py`** run on MNI **`sw*`** data → CSVs in `derivatives/nilearn_fc_motion/` |
 
 ### E. Hardware
 
@@ -621,8 +764,24 @@ Stored as `shared_design_matrix.csv` (51 × 10: `participant_id`, raw predictors
 
 ### F. Reproducibility
 
-All scripts and the final design CSV are committed to the project git repository at `C:\Users\Aditi\ds005613\`. Random seeds (e.g. `randomise -n 5000`) are not deterministic by default; results were generated with the seed left at the FSL default.
+All scripts and the final design CSV live in the project directory `C:\Users\Aditi\ds005613\`. `randomise` uses permutation randomness (5,000 draws); exact *p*-maps can differ slightly if re-run with a different seed/version.
+
+### G. `derivatives/` quick map
+
+```
+derivatives/
+├── nilearn_fc_motion/          ← FC matrices (.npy), GLM CSVs
+├── dwi_processed/
+│   ├── tbss/                   ← TBSS working dir (FA/, origdata/, etc.)
+│   └── sub-pp*/                ← per-subject DTI FA, etc.
+├── dwi_processed/tbss/stats/   ← all_FA_skeletonised, randomise outputs, design files
+├── randomise_log.txt
+├── tbss_inspection_report.txt
+├── tbss_randomise_archive_20260429_153849/   ← snapshot of stats + reports
+├── tbss2_log.txt, tbss3_log.txt, tbss4_log.txt
+└── validation/dwi/fsl/         ← SQUAD / eddy QC PDFs
+```
 
 ---
 
-*End of report — placeholders to be filled in during the morning of 29 April 2026.*
+*End of report — updated 29 April 2026 with completed SPM, FC GLM, TBSS, and randomise outputs.*

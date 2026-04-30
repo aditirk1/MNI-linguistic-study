@@ -1,0 +1,58 @@
+using pre-chosen target for registration
+transforming all FA images into MNI152 space
+sub-pp003_FA_FA
+sub-pp005_FA_FA
+sub-pp006_FA_FA
+sub-pp009_FA_FA
+sub-pp010_FA_FA
+sub-pp012_FA_FA
+sub-pp013_FA_FA
+sub-pp019_FA_FA
+sub-pp020_FA_FA
+sub-pp021_FA_FA
+sub-pp023_FA_FA
+sub-pp025_FA_FA
+sub-pp026_FA_FA
+sub-pp027_FA_FA
+sub-pp030_FA_FA
+sub-pp031_FA_FA
+sub-pp032_FA_FA
+sub-pp033_FA_FA
+sub-pp035_FA_FA
+sub-pp036_FA_FA
+sub-pp042_FA_FA
+sub-pp044_FA_FA
+sub-pp045_FA_FA
+sub-pp046_FA_FA
+sub-pp048_FA_FA
+sub-pp052_FA_FA
+sub-pp053_FA_FA
+sub-pp072_FA_FA
+sub-pp074_FA_FA
+sub-pp077_FA_FA
+sub-pp083_FA_FA
+sub-pp091_FA_FA
+sub-pp092_FA_FA
+sub-pp093_FA_FA
+sub-pp099_FA_FA
+sub-pp105_FA_FA
+sub-pp106_FA_FA
+sub-pp110_FA_FA
+sub-pp112_FA_FA
+sub-pp116_FA_FA
+sub-pp127_FA_FA
+sub-pp128_FA_FA
+sub-pp129_FA_FA
+sub-pp133_FA_FA
+sub-pp145_FA_FA
+sub-pp150_FA_FA
+sub-pp155_FA_FA
+sub-pp162_FA_FA
+sub-pp164_FA_FA
+sub-pp170_FA_FA
+sub-pp171_FA_FA
+merging all upsampled FA images into single 4D image
+creating valid mask and mean FA
+skeletonising mean FA
+now view mean_FA_skeleton to check whether the default threshold of 0.2 needs changing, when running:
+tbss_4_prestats <threshold>
